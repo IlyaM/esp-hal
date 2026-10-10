@@ -91,9 +91,10 @@ impl esp_radio_rtos_driver::SchedulerImplementation for Scheduler {
                 None
             }
         });
-        if let Some(cpu) = pin_to_core {
-            spawner = spawner.with_pinned_to(cpu);
-        }
+        // A thread that may run on either core can be resumed on the other core
+        // while this one still restores the next task from a frame on its stack.
+        // Until the scheduler rules that out, pin a thread to the core that makes it.
+        spawner = spawner.with_pinned_to(pin_to_core.unwrap_or_else(Cpu::current));
 
         spawner.spawn_extern(task, param).cast()
     }
