@@ -13,12 +13,18 @@ pub type FlashWordBuffer = FlashBuffer<4>;
 
 pub type FlashSectorBuffer = FlashBuffer<4096>;
 
+/// The bounce buffer for a slice that is not word-aligned: small, so a caller's
+/// stack frame does not carry a whole sector.
+pub type FlashChunkBuffer = FlashBuffer<256>;
+
 #[repr(C, align(4))]
 pub union FlashBuffer<const N: usize> {
     bytes: [MaybeUninit<u8>; N],
 }
 
 impl<const N: usize> FlashBuffer<N> {
+    pub const LEN: usize = N;
+
     pub const fn uninit() -> Self {
         Self {
             bytes: [MaybeUninit::uninit(); N],

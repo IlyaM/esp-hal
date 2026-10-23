@@ -3,7 +3,7 @@ use crate::buffer::FlashWordBuffer;
 use crate::{
     FlashStorage,
     FlashStorageError,
-    buffer::{FlashSectorBuffer, uninit_slice, uninit_slice_mut},
+    buffer::{FlashChunkBuffer, uninit_slice, uninit_slice_mut},
 };
 
 impl FlashStorage<'_> {
@@ -33,8 +33,8 @@ impl FlashStorage<'_> {
     ///
     /// # Note
     ///
-    /// If `bytes` is not word-aligned (4-byte), this function allocates a
-    /// [`Self::SECTOR_SIZE`]-byte buffer on the stack and copies through it.
+    /// If `bytes` is not word-aligned (4-byte), this function copies through a
+    /// 256-byte buffer on the stack.
     /// See the
     /// [crate-level documentation](crate#buffer-alignment-and-stack-usage).
     ///
@@ -99,11 +99,11 @@ impl FlashStorage<'_> {
             }
         } else {
             // Bytes buffer isn't word-aligned so we might read only via aligned buffer
-            let mut buffer = FlashSectorBuffer::uninit();
+            let mut buffer = FlashChunkBuffer::uninit();
 
             for (offset, chunk) in (offset..)
-                .step_by(Self::SECTOR_SIZE as _)
-                .zip(bytes.chunks_mut(Self::SECTOR_SIZE as _))
+                .step_by(FlashChunkBuffer::LEN)
+                .zip(bytes.chunks_mut(FlashChunkBuffer::LEN))
             {
                 // Read to temporary buffer first (chunk length is aligned)
                 #[cfg(not(feature = "bytewise-read"))]
@@ -144,8 +144,8 @@ impl FlashStorage<'_> {
     ///
     /// # Note
     ///
-    /// If `bytes` is not word-aligned (4-byte), this function allocates a
-    /// [`Self::SECTOR_SIZE`]-byte buffer on the stack and copies through it.
+    /// If `bytes` is not word-aligned (4-byte), this function copies through a
+    /// 256-byte buffer on the stack.
     /// See the
     /// [crate-level documentation](crate#buffer-alignment-and-stack-usage).
     ///
@@ -172,11 +172,11 @@ impl FlashStorage<'_> {
             }
         } else {
             // Bytes buffer isn't word-aligned so we might write only via aligned buffer
-            let mut buffer = FlashSectorBuffer::uninit();
+            let mut buffer = FlashChunkBuffer::uninit();
 
             for (offset, chunk) in (offset..)
-                .step_by(Self::SECTOR_SIZE as _)
-                .zip(bytes.chunks(Self::SECTOR_SIZE as _))
+                .step_by(FlashChunkBuffer::LEN)
+                .zip(bytes.chunks(FlashChunkBuffer::LEN))
             {
                 // Copy to temporary buffer first
                 buffer.as_bytes_mut()[..chunk.len()].copy_from_slice(uninit_slice(chunk));
@@ -480,6 +480,36 @@ mod tests {
         flash.read_nor(0, &mut read_data.data[..128]).unwrap();
 
         assert_eq!(&read_data.data[..128], &write_data.data[1..129]);
+    }
+
+    #[test]
+    fn write_not_aligned_buffer_across_chunks_and_sectors() {
+        let mut flash = FlashStorage::new(Flash::new());
+        flash.capacity = FLASH_SIZE as usize;
+        let src = TestBuffer::seq();
+        let mut read_data = TestBuffer::default();
+
+        // Offsets and lengths either side of the 256-byte bounce chunk and of
+        // a sector boundary.
+        for off in [0, 4, 252, 256, 260, SECTOR_SIZE - 256, SECTOR_SIZE - 4] {
+            for len in [4, 252, 256, 260, 512, 516, SECTOR_SIZE, SECTOR_SIZE + 4] {
+                flash.erase(0, 3 * SECTOR_SIZE).unwrap();
+                let written = &src.data[1..][..len as usize];
+                flash.write_nor(off, written).unwrap();
+
+                flash
+                    .read_nor(0, &mut read_data.data[..(3 * SECTOR_SIZE) as usize])
+                    .unwrap();
+                let (off, len) = (off as usize, len as usize);
+                assert!(read_data.data[..off].iter().all(|v| *v == 0xFF));
+                assert_eq!(&read_data.data[off..][..len], written);
+                assert!(
+                    read_data.data[off + len..(3 * SECTOR_SIZE) as usize]
+                        .iter()
+                        .all(|v| *v == 0xFF)
+                );
+            }
+        }
     }
 
     #[test]

@@ -24,13 +24,13 @@
 //!
 //! The ESP flash ROM read/write path requires word-aligned (4-byte) buffers.
 //! Several methods accept any `&[u8]` / `&mut [u8]` and, when needed, copy
-//! through a temporary sector-sized buffer on the stack. That cost is not
+//! through a temporary buffer on the stack. That cost is not
 //! visible from the slice type and can surprise users in stack-constrained
 //! contexts (for example Embassy tasks with small stacks).
 //!
-//! [`FlashStorage::read_nor`] and [`FlashStorage::write_nor`] only allocate
-//! this fallback when the caller's slice pointer is not word-aligned. Each
-//! fallback is [`FlashStorage::SECTOR_SIZE`] bytes.
+//! [`FlashStorage::read_nor`] and [`FlashStorage::write_nor`] instead copy
+//! through a 256-byte buffer, and only when the caller's slice pointer is not
+//! word-aligned.
 //!
 //! [`FlashStorage::read`], [`FlashStorage::write`], and the encrypted variants
 //! always allocate a sector buffer on the stack for each call.
